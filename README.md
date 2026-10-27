@@ -32,7 +32,7 @@ requests, manage branches, or copy skills into agent-specific directories such a
 - **GitHub CLI >= 2.90.0** (or the configured `gh-version`) on `PATH`. GitHub-hosted runners
   ship a recent `gh`. The action does **not** download `gh` itself. If your runner's copy is too
   old, the action fails with a clear message and you need to install a newer one first.
-- Bash, plus `find`, `sed`, `awk`, `cmp`, `od`, and `sha256sum` or `shasum`. All of these are
+- Bash, plus `find`, `sed`, `awk`, `comm`, `od`, and `sha256sum` or `shasum`. All of these are
   present on GitHub-hosted runners.
 - A repository checkout done by the calling workflow.
 
@@ -61,6 +61,7 @@ Boolean inputs accept exactly `true` or `false`. Any other value fails the run.
 |---|---|
 | `changed` | `true` when any file in an installed skill directory was added, removed or modified (content, executable bit or symlink target). Otherwise `false`. Always `false` with `dry-run`. |
 | `updated-skills` | Readable summary of the `gh skill update` output: available updates, `Updated <skill>` lines and skip notices. `No installed skills found.` when there is nothing to update. |
+| `updated-files` | Newline-separated paths, relative to the workspace, of every skill file that was added, removed or modified. Empty when `changed` is `false`. Useful to point reviewers at changed scripts. |
 
 Both outputs are also set when a skill update fails, so later steps with `if: always()` can
 still read them. Input or `gh` validation errors fail before any output is set.
@@ -133,7 +134,17 @@ jobs:
             ```
             ${{ steps.update.outputs.updated-skills }}
             ```
+
+            Changed files:
+
+            ```
+            ${{ steps.update.outputs.updated-files }}
+            ```
 ```
+
+With `GITHUB_TOKEN`, the pull request step fails unless **Settings → Actions → General →
+Workflow permissions → Allow GitHub Actions to create and approve pull requests** is enabled
+(at organization level too, if the organization restricts it).
 
 `add-paths` keeps the pull request limited to the skill directory. Pull requests created with
 `GITHUB_TOKEN` do not trigger other workflows. If you need CI to run on them, use a GitHub App
@@ -177,6 +188,10 @@ metadata:
   `plugins/*/skills/*/SKILL.md`, so a skill installed from a path such as `.agents/skills/<skill>`
   can never be updated. Retrying cannot fix that, so the run does not fail, but the skill stays
   at its installed version until the upstream publishes it in a discoverable path.
+- Skills installed with the Vercel CLI (`npx skills add`, tracked in `skills-lock.json`) do not
+  carry this metadata, so every one of them is skipped. Reinstall them with `gh skill install`,
+  or use an action built on that CLI such as
+  [`iyaki/skills-update`](https://github.com/iyaki/skills-update).
 - An update replaces the whole skill directory with the upstream content. Files you added
   locally inside a skill directory are removed.
 
@@ -202,6 +217,7 @@ manage pins (see [Differences from the reference action](#differences-from-the-r
   `updated-skills` to scripts through `env:`, never by inlining it with `${{ }}`.
 - Inputs reach the script only through environment variables and are validated. Paths are
   quoted, and `dir` must stay inside the workspace even through symlinks.
+- `gh` telemetry is disabled (`GH_TELEMETRY=false`, `DO_NOT_TRACK=1`).
 - The token reaches `gh` as `GH_TOKEN` and is never printed. The action needs only read access.
   Give the job the least permissions it needs, and use `persist-credentials: false` on
   checkout.
@@ -269,6 +285,7 @@ This action is an independent, simpler reimplementation inspired by
 |---|---|
 | `dir`, `dry-run`, `unpin`, `gh-version`, `github-token` inputs | Retained |
 | `changed` and `updated-skills` outputs | Retained |
+| `updated-files` output | Added |
 | Whole-directory change detection (content, exec bit, symlinks, `.git` excluded) | Retained |
 | Per-parent `--dir` discovery for nested layouts | Retained |
 | Bounded retries | Simplified: retries inline instead of a separate process-group-managed helper |

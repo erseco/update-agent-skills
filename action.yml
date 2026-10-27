@@ -34,6 +34,9 @@ outputs:
   updated-skills:
     description: Readable summary of the `gh skill update` operations.
     value: ${{ steps.update.outputs.updated-skills }}
+  updated-files:
+    description: Newline-separated workspace-relative paths of the skill files that were added, removed or modified. Empty when nothing changed.
+    value: ${{ steps.update.outputs.updated-files }}
 
 runs:
   using: composite

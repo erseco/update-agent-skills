@@ -152,6 +152,7 @@ t_no_skills() {
   assert_status 0
   assert_output changed false
   assert_output updated-skills "No installed skills found."
+  assert_output updated-files ""
   assert_calls 0
 }
 t_root_skill_md_ignored() {
@@ -199,6 +200,7 @@ t_multiple_skills() {
   assert_calls 1
   assert_contains "$(output updated-skills)" "Updated b"
   assert_not_contains "$(output updated-skills)" "Updated a"
+  assert_output updated-files "s/b/SKILL.md"
 }
 t_nested_layout() {
   skill "$ws/plugins/go/skills/golang"
@@ -271,6 +273,20 @@ t_symlink_target() {
   run INPUT_DIR=s
   assert_output changed true
 }
+t_updated_files_lists_changes() {
+  skill "$ws/s/a"
+  skill "$ws/s/b"
+  echo old >"$ws/s/a/OLD.md"
+  echo same >"$ws/s/a/same.md"
+  local up
+  up=$(upstream_copy "$ws/s/a")
+  rm "$up/OLD.md"
+  echo new >"$up/NEW.md"
+  echo "x" >>"$up/SKILL.md"
+  run INPUT_DIR=s
+  assert_output changed true
+  assert_output updated-files $'s/a/NEW.md\ns/a/OLD.md\ns/a/SKILL.md'
+}
 t_git_metadata_ignored() {
   skill "$ws/s/a"
   mkdir -p "$ws/s/a/.git"
@@ -289,6 +305,7 @@ t_dry_run() {
   run INPUT_DIR=s INPUT_DRY_RUN=true
   assert_status 0
   assert_output changed false
+  assert_output updated-files ""
   assert_contains "$(output updated-skills)" "1 update(s) available"
   grep -q "dry-run=true" "$log" || fail "--dry-run not passed"
   [[ "$(cat "$ws/s/a/SKILL.md")" == "$before" ]] || fail "dry-run modified files"

@@ -94,11 +94,13 @@ echo "Using GitHub CLI $gh_version (required >= $min_gh)."
 
 # Keep gh non-interactive and its output free of colours and spinners.
 export GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 GH_SPINNER_DISABLED=1 NO_COLOR=1
+# CI runs should not report usage data.
+export GH_TELEMETRY=false DO_NOT_TRACK=1
 
 # ── Discover installed skills ──
 # One skill directory per line: every directory below INPUT_DIR holding a SKILL.md. A SKILL.md
 # directly in INPUT_DIR is ignored, because updating it would mean scanning INPUT_DIR's parent.
-# ponytail: newline-separated paths, so a directory name containing a newline is not supported.
+# ponytail: newline- and tab-separated paths, so a name containing either is not supported.
 list_skills() {
   find "$root_dir" -name .git -prune -o -type f -name SKILL.md -print0 |
     while IFS= read -r -d '' md; do
@@ -106,8 +108,9 @@ list_skills() {
     done | sort -u
 }
 
-# One line per file in the skill directories read from stdin: content hash and executable bit of
-# every regular file, and the target of every symlink. Added or removed files change the listing.
+# One line per file in the skill directories read from stdin: the path, a tab, then the content
+# hash and executable bit of a regular file or the target of a symlink. Added or removed files
+# change the listing.
 # `.git` inside a skill directory is repository state, not skill content.
 snapshot() {
   local d f
@@ -117,11 +120,11 @@ snapshot() {
     fi
   done | sort -zu | while IFS= read -r -d '' f; do
     if [[ -L "$f" ]]; then
-      printf 'link %s -> %s\n' "$f" "$(readlink "$f")"
+      printf '%s\tlink -> %s\n' "$f" "$(readlink "$f")"
     else
       local mode=-
       if [[ -x "$f" ]]; then mode=x; fi
-      printf 'file %s %s %s\n' "$mode" "$("${hasher[@]}" <"$f" | cut -d' ' -f1)" "$f"
+      printf '%s\tfile %s %s\n' "$f" "$mode" "$("${hasher[@]}" <"$f" | cut -d' ' -f1)"
     fi
   done
 }
@@ -131,6 +134,7 @@ if [[ -z "$skills" ]]; then
   echo "No installed skills found in '$(rel "$root_dir")'."
   set_output changed false
   set_output updated-skills "No installed skills found."
+  set_output updated-files ""
   exit 0
 fi
 
@@ -191,11 +195,15 @@ done <<<"$roots"
 
 # Re-discover: a skill that appeared adds files to the snapshot and one that vanished removes them.
 list_skills | snapshot >"$after"
+# A path whose line differs between the snapshots was added, removed or modified.
+updated_files=$(comm -3 <(sort "$before") <(sort "$after") | sed $'s/^\t//' | cut -f1 | sort -u |
+  while IFS= read -r f; do rel "$f"; echo; done)
 changed=false
-if ! cmp -s "$before" "$after"; then changed=true; fi
+if [[ -n "$updated_files" ]]; then changed=true; fi
 
 set_output changed "$changed"
 set_output updated-skills "$(cat "$summary")"
+set_output updated-files "$updated_files"
 echo "changed=$changed"
 
 if ((status != 0)); then

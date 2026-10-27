@@ -31,7 +31,7 @@ jobs:
             .branding.icon == "refresh-cw" and .branding.color == "blue" and
             .runs.using == "composite" and
             (.inputs | keys | sort | join(",")) == "dir,dry-run,gh-version,github-token,unpin" and
-            (.outputs | keys | sort | join(",")) == "changed,updated-skills"
+            (.outputs | keys | sort | join(",")) == "changed,updated-files,updated-skills"
           ' action.yml
 
       - name: ShellCheck

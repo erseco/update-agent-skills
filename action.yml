@@ -18,6 +18,10 @@ inputs:
     description: When `true`, clear pins and update pinned skills too.
     required: false
     default: "false"
+  run-in-forks:
+    description: When `true`, also update skills when the repository is a fork. By default a fork is skipped, because it gets the updates from its upstream when it syncs.
+    required: false
+    default: "false"
   gh-version:
     description: Minimum required GitHub CLI version (must provide `gh skill`).
     required: false
@@ -49,5 +53,6 @@ runs:
         INPUT_DIR: ${{ inputs.dir }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
         INPUT_UNPIN: ${{ inputs.unpin }}
+        INPUT_RUN_IN_FORKS: ${{ inputs.run-in-forks }}
         INPUT_GH_VERSION: ${{ inputs.gh-version }}
       run: bash "$GITHUB_ACTION_PATH/scripts/update-skills.sh"

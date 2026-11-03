@@ -106,6 +106,9 @@ t_invalid_boolean() {
   run INPUT_UNPIN=TRUE
   assert_status 1
   assert_contains "$stdout" "Input 'unpin'"
+  run INPUT_RUN_IN_FORKS=1
+  assert_status 1
+  assert_contains "$stdout" "Input 'run-in-forks'"
 }
 t_invalid_gh_version() {
   run 'INPUT_GH_VERSION=2.90; rm -rf /'
@@ -335,6 +338,54 @@ t_no_metadata_warns() {
   run INPUT_DIR=s
   assert_status 0
   assert_contains "$stdout" "::warning::manual has no GitHub metadata"
+}
+
+# ── Forks ──
+
+t_fork_skipped() {
+  skill "$ws/s/a"
+  echo "x" >>"$(upstream_copy "$ws/s/a")/SKILL.md"
+  run INPUT_DIR=s GITHUB_REPOSITORY=me/fork MOCK_GH_FORK=true
+  assert_status 0
+  assert_calls 0
+  assert_output changed false
+  assert_output updated-files ""
+  assert_contains "$(output updated-skills)" "me/fork is a fork"
+  assert_contains "$stdout" "::notice::"
+  grep -q '^api repos/me/fork --jq .fork$' "$log" || fail "fork check not made: $(cat "$log")"
+  grep -qx x "$ws/s/a/SKILL.md" && fail "skill updated in a fork"
+}
+t_fork_opt_in() {
+  skill "$ws/s/a"
+  echo "x" >>"$(upstream_copy "$ws/s/a")/SKILL.md"
+  run INPUT_DIR=s GITHUB_REPOSITORY=me/fork MOCK_GH_FORK=true INPUT_RUN_IN_FORKS=true
+  assert_status 0
+  assert_output changed true
+  grep -q '^api ' "$log" && fail "fork check made although run-in-forks is true"
+}
+t_not_a_fork() {
+  skill "$ws/s/a"
+  echo "x" >>"$(upstream_copy "$ws/s/a")/SKILL.md"
+  run INPUT_DIR=s GITHUB_REPOSITORY=owner/repo MOCK_GH_FORK=false
+  assert_status 0
+  assert_output changed true
+  grep -q '^api repos/owner/repo --jq .fork$' "$log" || fail "fork check not made: $(cat "$log")"
+}
+t_fork_check_fails_warns() {
+  # Not being able to tell keeps the previous behaviour: update, with a warning.
+  skill "$ws/s/a"
+  echo "x" >>"$(upstream_copy "$ws/s/a")/SKILL.md"
+  run INPUT_DIR=s GITHUB_REPOSITORY=owner/repo MOCK_GH_FORK=fail
+  assert_status 0
+  assert_output changed true
+  assert_contains "$stdout" "::warning::Could not tell whether owner/repo is a fork"
+}
+t_no_repository_no_check() {
+  # Outside GitHub Actions there is no GITHUB_REPOSITORY: nothing to check.
+  skill "$ws/s/a"
+  run INPUT_DIR=s
+  assert_status 0
+  grep -q '^api ' "$log" && fail "fork check made without GITHUB_REPOSITORY"
 }
 
 # ── Failures and retries ──

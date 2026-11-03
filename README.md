@@ -12,11 +12,13 @@ requests, manage branches, or copy skills into agent-specific directories such a
 
 1. Validates the inputs. `dir` must be an existing directory inside the workspace.
 2. Checks that `gh` is installed, is at least `gh-version`, and provides `gh skill`.
-3. Finds every installed skill: each directory under `dir` that holds a `SKILL.md`. `.git`
+3. Stops without changing anything if the repository is a fork, unless `run-in-forks` is `true`
+   (see [Forks](#forks)).
+4. Finds every installed skill: each directory under `dir` that holds a `SKILL.md`. `.git`
    directories are skipped.
-4. Hashes every file in those skill directories, recording content, the executable bit and
+5. Hashes every file in those skill directories, recording content, the executable bit and
    symlink targets.
-5. Runs `gh skill update --all --dir <parent>` once for each directory that contains skills.
+6. Runs `gh skill update --all --dir <parent>` once for each directory that contains skills.
    `gh` only looks one level deep, so this is what supports both layouts:
 
    ```text
@@ -24,7 +26,7 @@ requests, manage branches, or copy skills into agent-specific directories such a
    plugins/<plugin>/skills/<skill>/SKILL.md   # nested
    ```
 
-6. Hashes the skill directories again and sets `changed` if anything differs. That includes a
+7. Hashes the skill directories again and sets `changed` if anything differs. That includes a
    change to a bundled script or reference file while `SKILL.md` stays byte-identical.
 
 ## Requirements
@@ -50,8 +52,9 @@ requests, manage branches, or copy skills into agent-specific directories such a
 | `dir` | `.` | Root directory containing installed skills. It must resolve, after following symlinks, to a path inside `$GITHUB_WORKSPACE`. A `SKILL.md` directly in `dir` is ignored, because updating it would mean scanning outside `dir`. |
 | `dry-run` | `false` | `true` reports available updates without modifying files (`gh skill update --dry-run`). |
 | `unpin` | `false` | `true` clears pins and updates pinned skills too (`gh skill update --unpin`). |
+| `run-in-forks` | `false` | `true` updates skills in a fork too. By default a fork is skipped; see [Forks](#forks). |
 | `gh-version` | `2.90.0` | Minimum required GitHub CLI version. |
-| `github-token` | `${{ github.token }}` | Token exposed to `gh` as `GH_TOKEN`. It needs read access to the upstream skill repositories. |
+| `github-token` | `${{ github.token }}` | Token exposed to `gh` as `GH_TOKEN`. It needs read access to the upstream skill repositories, and to the repository itself for the fork check (the default token has it). |
 
 Boolean inputs accept exactly `true` or `false`. Any other value fails the run.
 
@@ -60,7 +63,7 @@ Boolean inputs accept exactly `true` or `false`. Any other value fails the run.
 | Output | Description |
 |---|---|
 | `changed` | `true` when any file in an installed skill directory was added, removed or modified (content, executable bit or symlink target). Otherwise `false`. Always `false` with `dry-run`. |
-| `updated-skills` | Readable summary of the `gh skill update` output: available updates, `Updated <skill>` lines and skip notices. `No installed skills found.` when there is nothing to update. |
+| `updated-skills` | Readable summary of the `gh skill update` output: available updates, `Updated <skill>` lines and skip notices. `No installed skills found.` when there is nothing to update, `Skipped: <owner>/<repo> is a fork. …` in a skipped fork. |
 | `updated-files` | Newline-separated paths, relative to the workspace, of every skill file that was added, removed or modified. Empty when `changed` is `false`. Useful to point reviewers at changed scripts. |
 
 Both outputs are also set when a skill update fails, so later steps with `if: always()` can
@@ -206,6 +209,22 @@ A skill installed with `gh skill install --pin <ref>` carries `metadata.github-p
 To pin a skill, run `gh skill install --pin` locally and commit the result. This action does not
 manage pins (see [Differences from the reference action](#differences-from-the-reference-action)).
 
+## Forks
+
+A fork inherits its upstream's workflows, schedule included. Without a guard, every fork with
+Actions enabled would open its own update pull request every week for changes that reach it
+anyway the next time it syncs with the upstream, and merging them makes the fork diverge.
+
+So by default the action asks the API whether `GITHUB_REPOSITORY` is a fork and, if it is,
+stops before touching any file: `changed` is `false`, `updated-files` is empty, `updated-skills`
+explains why, and the run logs a notice. A workflow that opens the pull request only when
+`changed` is `true` therefore does nothing in forks.
+
+- To update skills in a fork anyway, set `run-in-forks: true`.
+- If the check fails (for example a token without access to the repository), the action logs a
+  warning and updates as usual rather than failing the run.
+- Outside GitHub Actions, without `GITHUB_REPOSITORY`, there is nothing to check.
+
 ## Security
 
 - **Review upstream changes before merging.** Skills are instructions, and often scripts, that
@@ -286,6 +305,7 @@ This action is an independent, simpler reimplementation inspired by
 | `dir`, `dry-run`, `unpin`, `gh-version`, `github-token` inputs | Retained |
 | `changed` and `updated-skills` outputs | Retained |
 | `updated-files` output | Added |
+| `run-in-forks` input (forks are skipped by default) | Added |
 | Whole-directory change detection (content, exec bit, symlinks, `.git` excluded) | Retained |
 | Per-parent `--dir` discovery for nested layouts | Retained |
 | Bounded retries | Simplified: retries inline instead of a separate process-group-managed helper |

@@ -2,7 +2,8 @@
 # Update installed agent skills with `gh skill update` and report whether any skill file changed.
 #
 # Configuration comes from the environment (set by action.yml):
-#   INPUT_DIR, INPUT_DRY_RUN, INPUT_UNPIN, INPUT_GH_VERSION, GH_TOKEN
+#   INPUT_DIR, INPUT_DRY_RUN, INPUT_UNPIN, INPUT_RUN_IN_FORKS, INPUT_GH_VERSION, GH_TOKEN
+#   GITHUB_REPOSITORY (set by the runner) is checked to skip forks.
 #   RETRY_ATTEMPTS (default 3) and RETRY_DELAY (seconds, default 5) tune the network retry.
 #
 # The script never commits, pushes or touches files outside the skill directories under INPUT_DIR.
@@ -12,6 +13,7 @@ unset CDPATH
 dir=${INPUT_DIR:-.}
 dry_run=${INPUT_DRY_RUN:-false}
 unpin=${INPUT_UNPIN:-false}
+run_in_forks=${INPUT_RUN_IN_FORKS:-false}
 min_gh=${INPUT_GH_VERSION:-2.90.0}
 attempts=${RETRY_ATTEMPTS:-3}
 delay=${RETRY_DELAY:-5}
@@ -53,7 +55,7 @@ version_ge() { # <have> <want>: true when have >= want
 }
 
 # ── Validate inputs ──
-for pair in "dry-run=$dry_run" "unpin=$unpin"; do
+for pair in "dry-run=$dry_run" "unpin=$unpin" "run-in-forks=$run_in_forks"; do
   case "${pair#*=}" in
     true | false) ;;
     *) die "Input '${pair%%=*}' must be 'true' or 'false', got '${pair#*=}'." ;;
@@ -96,6 +98,25 @@ echo "Using GitHub CLI $gh_version (required >= $min_gh)."
 export GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 GH_SPINNER_DISABLED=1 NO_COLOR=1
 # CI runs should not report usage data.
 export GH_TELEMETRY=false DO_NOT_TRACK=1
+
+# ── Skip forks ──
+# A fork inherits the upstream's workflows, schedule included, so every fork would open its own
+# update pull request for changes that will reach it anyway when it syncs. Opt in with
+# run-in-forks: true. If the check itself fails, update as before rather than fail the run.
+if [[ "$run_in_forks" == false && -n "${GITHUB_REPOSITORY:-}" ]]; then
+  fork_rc=0
+  is_fork=$(gh api "repos/$GITHUB_REPOSITORY" --jq .fork </dev/null 2>&1) || fork_rc=$?
+  if ((fork_rc != 0)) || [[ "$is_fork" != true && "$is_fork" != false ]]; then
+    echo "::warning::$(escape "Could not tell whether $GITHUB_REPOSITORY is a fork, so updating as usual: $is_fork")"
+  elif [[ "$is_fork" == true ]]; then
+    skipped="Skipped: $GITHUB_REPOSITORY is a fork. Set run-in-forks: true to update skills in forks."
+    echo "::notice::$(escape "$skipped")"
+    set_output changed false
+    set_output updated-skills "$skipped"
+    set_output updated-files ""
+    exit 0
+  fi
+fi
 
 # ── Discover installed skills ──
 # One skill directory per line: every directory below INPUT_DIR holding a SKILL.md. A SKILL.md

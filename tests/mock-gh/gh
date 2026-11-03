@@ -12,11 +12,21 @@
 #   MOCK_GH_FAIL_MODE      `exit` (non-zero status, default), `skip` (`! Skipping`, exit 0) or
 #                          `layout` (upstream publishes no skill where gh looks, exit 0)
 #   MOCK_GH_ECHO           extra text printed by every update call
+#   MOCK_GH_FORK           `gh api repos/<repo> --jq .fork` prints `true` or `false` (default);
+#                          any other value makes the call fail
 set -euo pipefail
 
 if [[ "${1:-}" == --version ]]; then
   echo "gh version ${MOCK_GH_VERSION:-2.95.0} (2026-01-01)"
   echo "https://github.com/cli/cli/releases/tag/v${MOCK_GH_VERSION:-2.95.0}"
+  exit 0
+fi
+if [[ "${1:-}" == api ]]; then
+  echo "$*" >>"${MOCK_GH_LOG:-/dev/null}"
+  case "${MOCK_GH_FORK:-false}" in
+    true | false) echo "${MOCK_GH_FORK:-false}" ;;
+    *) echo "HTTP 404: Not Found (https://api.github.com/${2:-})" >&2; exit 1 ;;
+  esac
   exit 0
 fi
 if [[ "${1:-}" != skill || -n "${MOCK_GH_NO_SKILL:-}" ]]; then
